@@ -77,11 +77,11 @@ class Experience(object):
             indices.append(index)
             out.append(data)
             self.priority_update([index], [0]) # To avoid duplicating
-            
+
         
         self.priority_update(indices, priorities) # Revert priorities
-
-        weights /= max(weights) # Normalize for stability
+        #weights /= max(weights) # Normalize for stability
+        weights = [float(i)/max(weights) for i in weights]
         
         return out, weights, indices
 

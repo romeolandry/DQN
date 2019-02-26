@@ -20,6 +20,13 @@ import game
 
 # Replay memory
 from collections import deque
+""" 
+import proportional
+undable getMove with epsilon greedy
+write mini_batch
+"""
+import proportional
+#from sympy.vector import gradient
 
 # Neural nets
 import tensorflow as tf
@@ -35,11 +42,17 @@ params = {
     'train_start': 5000,    # Episodes before training starts
     'batch_size': 32,       # Replay memory batch size
     'mem_size': 100000,     # Replay memory size
+    'alpha':0.5,
+    'beta':0.5,              # for probability of sample buffer 1 isr uniform sanple
+    'epsPrio':0.2,
+    'p1':1.0,
+    'periode_replay':50,
 
     'discount': 0.95,       # Discount rate (gamma value)
     'lr': .0002,            # Learning reate
     # 'rms_decay': 0.99,      # RMS Prop decay (switched to adam)
     # 'rms_eps': 1e-6,        # RMS Prop epsilon (switched to adam)
+
 
     # Epsilon value (epsilon-greedy)
     'eps': 1.0,             # Epsilon start value
@@ -80,14 +93,21 @@ class PacmanDQN(game.Agent):
         self.s = time.time()
         self.last_reward = 0.
 
-        self.replay_mem = deque()
+
+        ##self.replay_mem = deque()
+        ## used priority buffer proportional
+        self.last_priority=[]
+        self.cur_priority=1
+        self.last_priority.append(self.cur_priority)
+        self.explore= True
+        self.replay_mem = proportional.Experience(self.params['mem_size'],self.params['batch_size'],self.params['alpha'])
         self.last_scores = deque()
-
-
+        
     def getMove(self, state):
         # Exploit / Explore
         if np.random.rand() > self.params['eps']:
             # Exploit action
+            self.explore=False
             self.Q_pred = self.qnet.sess.run(
                 self.qnet.y,
                 feed_dict = {self.qnet.x: np.reshape(self.current_state,
@@ -107,7 +127,8 @@ class PacmanDQN(game.Agent):
                 move = self.get_direction(
                     a_winner[0][0])
         else:
-            # Random:
+            # Random: exploration
+            self.explore=True
             move = self.get_direction(np.random.randint(0, 4))
 
         # Save last_action
@@ -134,7 +155,22 @@ class PacmanDQN(game.Agent):
             return Directions.SOUTH
         else:
             return Directions.WEST
-            
+
+    def q_min_batch(self):
+        for j in range(1,self.params['batch_size']):             
+            prob_j = self.cur_priority**self.params['alpha']/sum(self.last_priority)
+            #print(prob_j)
+            sample,weight,indice =self.replay_mem.select(self.params['beta'])           
+            self.trainper(sample)
+            self.last_priority[j]=self.cost_disp
+            #weight[j]=self.cost_disp                   
+            self.replay_mem.priority_update(indice,self.last_priority)
+            #self.cumul_weight = self.delta + weight[j]*self.cost_disp* gradient()
+
+        self.params['eps'] = max(self.params['eps_final'],
+                                 1.00 - float(self.cnt)/ float(self.params['eps_step']))                                      
+
+
     def observation_step(self, state):
         if self.last_action is not None:
             # Process current experience state
@@ -161,27 +197,30 @@ class PacmanDQN(game.Agent):
                 self.last_reward = 100.
             self.ep_rew += self.last_reward
 
-            # Store last experience into memory 
+            # Store last experience into memory          
+            self.cur_priority = max(self.last_priority)
+            self.last_priority.append(self.cur_priority)
             experience = (self.last_state, float(self.last_reward), self.last_action, self.current_state, self.terminal)
-            self.replay_mem.append(experience)
-            if len(self.replay_mem) > self.params['mem_size']:
-                self.replay_mem.popleft()
-
+            #self.replay_mem.append(experience)
+            self.replay_mem.add(experience,self.cur_priority)
+            #if len(self.replay_mem) > self.params['mem_size']:
+                #self.replay_mem.popleft()
             # Save model
+
             if(params['save_file']):
                 if self.local_cnt > self.params['train_start'] and self.local_cnt % self.params['save_interval'] == 0:
                     self.qnet.save_ckpt('saves/model-' + params['save_file'] + "_" + str(self.cnt) + '_' + str(self.numeps))
                     print('Model saved')
 
-            # Train
-            self.train()
-
+            if(self.local_cnt % self.params['periode_replay'] == 0):
+                self.q_min_batch()
+                
         # Next
         self.local_cnt += 1
         self.frame += 1
         self.params['eps'] = max(self.params['eps_final'],
                                  1.00 - float(self.cnt)/ float(self.params['eps_step']))
-
+        
 
     def observationFunction(self, state):
         # Do observation
@@ -206,6 +245,7 @@ class PacmanDQN(game.Agent):
         sys.stdout.write("# %4d | steps: %5d | steps_t: %5d | t: %4f | r: %12f | e: %10f " %
                          (self.numeps,self.local_cnt, self.cnt, time.time()-self.s, self.ep_rew, self.params['eps']))
         sys.stdout.write("| Q: %10f | won: %r \n" % ((max(self.Q_global, default=float('nan')), self.won)))
+        sys.stdout.write("| mem_fulled: %10d | Explore: %r \n" % ((self.replay_mem.tree.filled_size(), self.explore)))
         sys.stdout.flush()
 
     def train(self):
@@ -231,6 +271,29 @@ class PacmanDQN(game.Agent):
             batch_t = np.array(batch_t)
 
             self.cnt, self.cost_disp = self.qnet.train(batch_s, batch_a, batch_t, batch_n, batch_r)
+
+    def trainper(self,sample):
+        # Train
+            #batch = random.sample(self.replay_mem, self.params['batch_size'])
+            batch_s = [] # States (s)
+            batch_r = [] # Rewards (r)
+            batch_a = [] # Actions (a)
+            batch_n = [] # Next states (s')
+            batch_t = [] # Terminal state (t)
+
+            for i in sample:
+                batch_s.append(i[0])
+                batch_r.append(i[1])
+                batch_a.append(i[2])
+                batch_n.append(i[3])
+                batch_t.append(i[4])
+            batch_s = np.array(batch_s)
+            batch_r = np.array(batch_r)
+            batch_a = self.get_onehot(np.array(batch_a))
+            batch_n = np.array(batch_n)
+            batch_t = np.array(batch_t)
+            self.cnt, self.cost_disp = self.qnet.train(batch_s, batch_a, batch_t, batch_n, batch_r)
+
 
 
     def get_onehot(self, actions):

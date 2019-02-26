@@ -56,6 +56,7 @@ import os
 import pacmanDQN_Agents
 import ghostAgents
 
+
 ###################################################
 # YOUR INTERFACE TO THE PACMAN WORLD: A GameState #
 ###################################################
@@ -726,6 +727,7 @@ def runGames(layout, pacman, ghosts, display, numGames, record, numTraining=0, c
                (wins.count(True), len(wins), winRate)))
         print(('Record:       ', ', '.join(
             [['Loss', 'Win'][int(w)] for w in wins])))
+        #visualiton.readlog('prioritization',)
 
     return games
 
