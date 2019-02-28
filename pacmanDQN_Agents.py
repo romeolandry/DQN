@@ -99,42 +99,68 @@ class PacmanDQN(game.Agent):
         self.last_priority=[]
         self.cur_priority=1
         self.last_priority.append(self.cur_priority)
+        self.delta=0
         self.explore= True
         self.replay_mem = proportional.Experience(self.params['mem_size'],self.params['batch_size'],self.params['alpha'])
         self.last_scores = deque()
-        
+    ## without epsilon greedy  
     def getMove(self, state):
-        # Exploit / Explore
-        if np.random.rand() > self.params['eps']:
-            # Exploit action
-            self.explore=False
-            self.Q_pred = self.qnet.sess.run(
-                self.qnet.y,
-                feed_dict = {self.qnet.x: np.reshape(self.current_state,
-                                                     (1, self.params['width'], self.params['height'], 6)), 
-                             self.qnet.q_t: np.zeros(1),
-                             self.qnet.actions: np.zeros((1, 4)),
-                             self.qnet.terminals: np.zeros(1),
-                             self.qnet.rewards: np.zeros(1)})[0]
+        ## reabe the 
+        self.Q_pred = self.qnet.sess.run(
+            self.qnet.y,
+            feed_dict = {self.qnet.x: np.reshape(self.current_state,
+                                                    (1, self.params['width'], self.params['height'], 6)), 
+                            self.qnet.q_t: np.zeros(1),
+                            self.qnet.actions: np.zeros((1, 4)),
+                            self.qnet.terminals: np.zeros(1),
+                            self.qnet.rewards: np.zeros(1)})[0]
 
-            self.Q_global.append(max(self.Q_pred))
-            a_winner = np.argwhere(self.Q_pred == np.amax(self.Q_pred))
+        self.Q_global.append(max(self.Q_pred))
+        a_winner = np.argwhere(self.Q_pred == np.amax(self.Q_pred))
 
-            if len(a_winner) > 1:
-                move = self.get_direction(
-                    a_winner[np.random.randint(0, len(a_winner))][0])
-            else:
-                move = self.get_direction(
-                    a_winner[0][0])
+        if len(a_winner) > 1:
+            move = self.get_direction(
+                a_winner[np.random.randint(0, len(a_winner))][0])
         else:
-            # Random: exploration
-            self.explore=True
-            move = self.get_direction(np.random.randint(0, 4))
-
+            move = self.get_direction(
+                a_winner[0][0])
         # Save last_action
         self.last_action = self.get_value(move)
+        return move  
 
-        return move
+    ## with epsilon greedy   
+# def getMove(self, state):
+#         # Exploit / Explore
+#         if np.random.rand() > self.params['eps']:
+#             # Exploit action
+#             self.explore=False
+#             self.Q_pred = self.qnet.sess.run(
+#                 self.qnet.y,
+#                 feed_dict = {self.qnet.x: np.reshape(self.current_state,
+#                                                      (1, self.params['width'], self.params['height'], 6)), 
+#                              self.qnet.q_t: np.zeros(1),
+#                              self.qnet.actions: np.zeros((1, 4)),
+#                              self.qnet.terminals: np.zeros(1),
+#                              self.qnet.rewards: np.zeros(1)})[0]
+
+#             self.Q_global.append(max(self.Q_pred))
+#             a_winner = np.argwhere(self.Q_pred == np.amax(self.Q_pred))
+
+#             if len(a_winner) > 1:
+#                 move = self.get_direction(
+#                     a_winner[np.random.randint(0, len(a_winner))][0])
+#             else:
+#                 move = self.get_direction(
+#                     a_winner[0][0])
+#         else:
+#             # Random: exploration
+#             self.explore=True
+#             move = self.get_direction(np.random.randint(0, 4))
+
+#         # Save last_action
+#         self.last_action = self.get_value(move)
+
+#         return move
 
     def get_value(self, direction):
         if direction == Directions.NORTH:
@@ -165,10 +191,11 @@ class PacmanDQN(game.Agent):
             self.last_priority[j]=self.cost_disp
             #weight[j]=self.cost_disp                   
             self.replay_mem.priority_update(indice,self.last_priority)
-            #self.cumul_weight = self.delta + weight[j]*self.cost_disp* gradient()
-
-        self.params['eps'] = max(self.params['eps_final'],
-                                 1.00 - float(self.cnt)/ float(self.params['eps_step']))                                      
+            self.delta  = self.delta + (weight[j]*self.cost_disp*self.cnt)
+        self.cost_disp = self.cost_disp +(self.params['lr']*self.delta)
+        self.delta=0
+        # self.params['eps'] = max(self.params['eps_final'],
+        #                           1.00 - float(self.cnt)/ float(self.params['eps_step']))                                      
 
 
     def observation_step(self, state):
@@ -206,7 +233,6 @@ class PacmanDQN(game.Agent):
             #if len(self.replay_mem) > self.params['mem_size']:
                 #self.replay_mem.popleft()
             # Save model
-
             if(params['save_file']):
                 if self.local_cnt > self.params['train_start'] and self.local_cnt % self.params['save_interval'] == 0:
                     self.qnet.save_ckpt('saves/model-' + params['save_file'] + "_" + str(self.cnt) + '_' + str(self.numeps))
